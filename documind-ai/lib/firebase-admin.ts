@@ -21,8 +21,8 @@ if (!admin.apps.length) {
       serviceAccount = {
         projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // Fix for private key newline issues in Vercel/Docker
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        // Robust fix for private key: handle literal \n AND accidental quotes
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/"/g, ''),
       };
     }
     else {
