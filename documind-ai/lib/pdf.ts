@@ -1,5 +1,5 @@
-import { PDFParse } from 'pdf-parse';
-import path from 'path';
+import './polyfill';
+import pdf from 'pdf-parse';
 
 /**
  * Extract text content from a PDF buffer.
@@ -8,14 +8,8 @@ import path from 'path';
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
-    // Use local file URL for the worker to satisfy Node.js ESM loader requirements
-    const absoluteWorkerPath = path.resolve(process.cwd(), 'node_modules/pdfjs-dist/build/pdf.worker.mjs');
-    const workerUrl = `file:///${absoluteWorkerPath.replace(/\\/g, '/')}`;
-    PDFParse.setWorker(workerUrl);
-
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    return result.text.replace(/\s+/g, ' ').trim();
+    const data = await pdf(buffer);
+    return data.text.replace(/\s+/g, ' ').trim();
   } catch (error) {
     console.error("Error parsing PDF:", error);
     throw new Error("Failed to parse PDF document.");

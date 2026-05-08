@@ -1,3 +1,4 @@
+import '@/lib/polyfill';
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromPDF, chunkText } from '@/lib/pdf';
 import { generateEmbeddings } from '@/lib/embeddings';
