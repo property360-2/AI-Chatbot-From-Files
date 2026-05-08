@@ -42,14 +42,27 @@ if (!admin.apps.length) {
       }
     }
 
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log('Firebase Admin initialized successfully');
+    // Robust private key fixer
+    const cleanKey = (key: string) => {
+      return key
+        .replace(/\\n/g, '\n') // Convert literal \n to real newlines
+        .replace(/"/g, '')     // Remove accidental quotes
+        .trim();               // Remove accidental whitespace
+    };
+
+    if (serviceAccount?.privateKey) {
+      serviceAccount.privateKey = cleanKey(serviceAccount.privateKey);
+    }
+
+    if (serviceAccount) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      console.log('Firebase Admin initialized successfully');
+    }
   } catch (error: any) {
-    console.error('CRITICAL: Firebase admin initialization failed.');
-    console.error('Ensure FIREBASE_SERVICE_ACCOUNT env var is set in Vercel.');
-    console.error('Error details:', error.message);
+    console.warn('[Firebase Admin] Initialization deferred or failed.');
+    console.warn('Reason:', error.message);
   }
 }
 

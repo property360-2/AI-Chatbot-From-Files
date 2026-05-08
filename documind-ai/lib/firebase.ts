@@ -21,12 +21,20 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase for Client-side
-// Singleton pattern to avoid re-initializing during hot reloads
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// Initialize Firebase for Client-side only when keys are present
+let app;
+let auth: any;
+let db: any;
 
-// Export initialized services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+if (typeof window !== "undefined" || firebaseConfig.apiKey) {
+  try {
+    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (error) {
+    console.error("Firebase initialization failed:", error);
+  }
+}
 
+export { auth, db };
 export default app;
