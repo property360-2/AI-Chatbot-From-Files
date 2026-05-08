@@ -42,22 +42,25 @@ if (!admin.apps.length) {
       }
     }
 
-    // Robust private key fixer (The "Magic Fix")
+    // The "Ultimate PEM Reconstructor"
+    // This strips everything and rebuilds the key from scratch to be perfect.
     const cleanKey = (key: string) => {
       if (!key) return "";
       
-      // 1. Remove accidental quotes and handle literal \n
-      let fixed = key.replace(/"/g, "").replace(/\\n/g, "\n");
+      const header = "-----BEGIN PRIVATE KEY-----";
+      const footer = "-----END PRIVATE KEY-----";
       
-      // 2. If it's all on one line, it MUST have the \n characters converted
-      // This is a common issue when pasting into Vercel
-      if (!fixed.includes("\n") && fixed.includes("-----BEGIN PRIVATE KEY-----")) {
-        fixed = fixed
-          .replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
-          .replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----");
-      }
+      // 1. Remove quotes, literal \n, and accidental spaces
+      let raw = key.replace(/"/g, "").replace(/\\n/g, "\n").trim();
       
-      return fixed.trim();
+      // 2. Extract the core base64 body by removing headers/footers/whitespace
+      const body = raw
+        .replace(header, "")
+        .replace(footer, "")
+        .replace(/\s+/g, ""); // Remove ALL whitespace and newlines from the middle
+      
+      // 3. Re-wrap it in a perfect PEM structure
+      return `${header}\n${body}\n${footer}`;
     };
 
     if (serviceAccount?.privateKey) {
