@@ -42,12 +42,22 @@ if (!admin.apps.length) {
       }
     }
 
-    // Robust private key fixer
+    // Robust private key fixer (The "Magic Fix")
     const cleanKey = (key: string) => {
-      return key
-        .replace(/\\n/g, '\n') // Convert literal \n to real newlines
-        .replace(/"/g, '')     // Remove accidental quotes
-        .trim();               // Remove accidental whitespace
+      if (!key) return "";
+      
+      // 1. Remove accidental quotes and handle literal \n
+      let fixed = key.replace(/"/g, "").replace(/\\n/g, "\n");
+      
+      // 2. If it's all on one line, it MUST have the \n characters converted
+      // This is a common issue when pasting into Vercel
+      if (!fixed.includes("\n") && fixed.includes("-----BEGIN PRIVATE KEY-----")) {
+        fixed = fixed
+          .replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+          .replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----");
+      }
+      
+      return fixed.trim();
     };
 
     if (serviceAccount?.privateKey) {
