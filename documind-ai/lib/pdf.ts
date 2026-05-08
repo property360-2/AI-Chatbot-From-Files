@@ -1,5 +1,8 @@
 import './polyfill';
-import pdf from 'pdf-parse';
+import * as _pdf from 'pdf-parse';
+
+// Handle CJS/ESM interop for pdf-parse
+const pdf = (_pdf as any).default || _pdf;
 
 /**
  * Extract text content from a PDF buffer.
