@@ -22,17 +22,21 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase for Client-side only when keys are present
-let app;
-let auth: any;
-let db: any;
+let app: any = null;
+let auth: any = null;
+let db: any = null;
 
-if (typeof window !== "undefined" || firebaseConfig.apiKey) {
-  try {
-    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-    auth = getAuth(app);
-    db = getFirestore(app);
-  } catch (error) {
-    console.error("Firebase initialization failed:", error);
+if (typeof window !== "undefined") {
+  if (firebaseConfig.apiKey) {
+    try {
+      app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+      auth = getAuth(app);
+      db = getFirestore(app);
+    } catch (error) {
+      console.error("Firebase initialization failed:", error);
+    }
+  } else {
+    console.warn("Firebase API Key is missing. Auth and Firestore will be unavailable.");
   }
 }
 

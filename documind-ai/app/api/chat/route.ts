@@ -18,13 +18,17 @@ export async function POST(request: NextRequest) {
 
     const idToken = authHeader.split('Bearer ')[1];
     try {
+      if (!adminAuth) {
+        console.error('Chat API: adminAuth is null. Firebase Admin failed to initialize.');
+        return NextResponse.json({ error: 'Server configuration error: Firebase Admin not initialized' }, { status: 500 });
+      }
       const decodedToken = await adminAuth.verifyIdToken(idToken);
       if (decodedToken.uid !== userId) {
         return NextResponse.json({ error: 'Forbidden: User ID mismatch' }, { status: 403 });
       }
-    } catch (err) {
-      console.error('Token verification failed:', err);
-      return NextResponse.json({ error: 'Unauthorized: Invalid token' }, { status: 401 });
+    } catch (err: any) {
+      console.error('Token verification failed:', err.message);
+      return NextResponse.json({ error: `Unauthorized: ${err.message}` }, { status: 401 });
     }
 
     if (!message || !userId) {
@@ -40,7 +44,8 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encoder.encode(chunk));
             }
           }
-        } catch (err) {
+        } catch (err: any) {
+          console.error('Streaming RAG Error:', err.message);
           controller.error(err);
         } finally {
           controller.close();
@@ -55,8 +60,11 @@ export async function POST(request: NextRequest) {
       },
     });
 
-  } catch (error) {
-    console.error('Chat API Error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Chat API Fatal Error:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error.message 
+    }, { status: 500 });
   }
 }

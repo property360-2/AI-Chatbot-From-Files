@@ -317,11 +317,14 @@ export default function ChatInterface() {
         body: JSON.stringify({
           message: userMessage.content,
           history: history,
-          userId: user?.uid // Keep for convenience, but server will verify against token
+          userId: user?.uid 
         }),
       });
 
-      if (!response.ok) throw new Error('Chat failed');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || 'Chat failed');
+      }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No reader available');
@@ -337,7 +340,6 @@ export default function ChatInterface() {
         const text = realDecoder.decode(value, { stream: true });
         fullContent += text;
 
-        // Reactive update for the assistant message in the UI
         setMessages(prev => {
           const assistantIdx = prev.findIndex(m => m.id === assistantId);
           if (assistantIdx === -1) {
@@ -347,19 +349,18 @@ export default function ChatInterface() {
         });
       }
 
-      // 4. Finalize assistant message in Firestore
       await addDoc(collection(db, 'users', user.uid, 'conversations', chatId, 'messages'), {
         role: 'assistant',
         content: fullContent,
         timestamp: serverTimestamp(),
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Chat error:', error);
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: "I'm sorry, I'm having trouble connecting to the brain right now. Please try again later.",
+        content: `Error: ${error.message}. Please check your configuration.`,
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -388,13 +389,16 @@ export default function ChatInterface() {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      const data = await response.json().catch(() => ({ error: 'Upload failed' }));
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.details || 'Upload failed');
+      }
+
       setUploadedFiles(prev => [...prev, {
         id: data.document.id,
         name: data.document.name,
-        size: (data.document.size / 1024).toFixed(1) + ' KB'
+        size: data.document.size
       }]);
 
       const assistantMessage: Message = {
@@ -404,10 +408,11 @@ export default function ChatInterface() {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error);
-      alert('Failed to upload document');
+      alert(`Upload failed: ${error.message}`);
     } finally {
+      setIsLoading(false);
       setIsUploading(false);
     }
   };
