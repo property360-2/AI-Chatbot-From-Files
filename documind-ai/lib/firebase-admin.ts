@@ -14,8 +14,17 @@ if (!admin.apps.length) {
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
       serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     } else {
-      // Fallback to local file (Development)
-      serviceAccount = require('../service-account.json');
+      // Fallback to local file (Development) - Using process.cwd() for robust path resolution in Next.js
+      try {
+        const path = require('path');
+        const fs = require('fs');
+        const serviceAccountPath = path.join(process.cwd(), 'service-account.json');
+        if (fs.existsSync(serviceAccountPath)) {
+          serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+        }
+      } catch (err) {
+        console.error('Local service account file not found or invalid');
+      }
     }
 
     admin.initializeApp({
