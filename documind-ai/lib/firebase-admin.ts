@@ -10,13 +10,23 @@ if (!admin.apps.length) {
   try {
     let serviceAccount;
 
-    // Check if we have the service account as an environment variable (Production/Render)
+    // Check for the full service account JSON first
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      console.log('[Firebase Admin] Initializing with environment variable');
+      console.log('[Firebase Admin] Initializing with full SERVICE_ACCOUNT JSON');
       serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    } else {
-      console.log('[Firebase Admin] No environment variable found, checking for local service-account.json');
-      // Fallback to local file (Development) - Using process.cwd() for robust path resolution in Next.js
+    } 
+    // Otherwise, construct it from individual variables (Easier for Vercel/Render)
+    else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+      console.log('[Firebase Admin] Initializing with individual environment variables');
+      serviceAccount = {
+        projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        // Fix for private key newline issues in Vercel/Docker
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      };
+    }
+    else {
+      console.log('[Firebase Admin] No environment variables found, checking for local service-account.json');
       try {
         const path = require('path');
         const fs = require('fs');
@@ -25,7 +35,7 @@ if (!admin.apps.length) {
           serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
           console.log('[Firebase Admin] Successfully loaded local service-account.json');
         } else {
-          console.warn('[Firebase Admin] Local service-account.json not found');
+          console.warn('[Firebase Admin] Local configuration missing. Please set environment variables.');
         }
       } catch (err: any) {
         console.error('[Firebase Admin] Error loading local file:', err.message);
