@@ -1,29 +1,39 @@
-import { pipeline } from '@xenova/transformers';
-
-let embedderPromise: any = null;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 /**
- * Get or initialize the embedding pipeline.
- */
-async function getEmbedder() {
-  if (!embedderPromise) {
-    embedderPromise = pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-  }
-  return embedderPromise;
-}
-
-/**
- * Generate embeddings for a given text.
- * Uses the all-MiniLM-L6-v2 model for high-quality semantic vectors.
+ * Generate embeddings for a given text using Groq's Embedding API.
+ * Uses the 'nomic-embed-text-v1.5' model for high-performance semantic vectors.
+ * This is much faster and more reliable for serverless environments (Vercel).
  */
 export async function generateEmbeddings(text: string): Promise<number[]> {
+  if (!GROQ_API_KEY) {
+    console.error("[Embeddings] Missing GROQ_API_KEY");
+    throw new Error("GROQ_API_KEY is not configured.");
+  }
+
   try {
-    const embedder = await getEmbedder();
-    const output = await embedder(text, { pooling: 'mean', normalize: true });
-    return Array.from(output.data) as number[];
-  } catch (error) {
-    console.error("Embedding error:", error);
-    throw new Error("Failed to generate embeddings.");
+    const response = await fetch("https://api.groq.com/openai/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "nomic-embed-text-v1.5",
+        input: text,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Groq API error: ${response.status} ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    return data.data[0].embedding;
+  } catch (error: any) {
+    console.error("[Embeddings] Error generating vectors:", error.message);
+    throw new Error("Failed to generate embeddings via Groq.");
   }
 }
 

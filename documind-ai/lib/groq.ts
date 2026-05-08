@@ -11,18 +11,12 @@ if (!apiKey) {
  * Ordered by quality then availability based on quota limits.
  */
 export const MODELS = [
-  "llama-3.3-70b-versatile",                  // Premium Quality (1K/day)
-  "meta-llama/llama-4-scout-17b-16e-instruct", // Next-Gen Experimental
-  "qwen/qwen3-32b",                            // High Throughput (60 RPM)
-  "llama-3.1-8b-instant",                      // High Availability (14.4K/day)
-  "groq/compound",                             // Groq Optimized
-  "groq/compound-mini",                        // Groq Optimized (Fast)
-  "openai/gpt-oss-120b",                       // Large Model Fallback
-  "openai/gpt-oss-20b",                        // Medium Model Fallback
-  "mixtral-8x7b-32768",                        // High Context Fallback
-  "allam-2-7b",                                // Lightweight Fallback
-  "meta-llama/llama-prompt-guard-2-86m",       // Utility/Security
-  "meta-llama/llama-prompt-guard-2-22m"        // Utility/Security
+  "llama-3.3-70b-versatile",   // Best quality
+  "llama-3.1-8b-instant",     // High speed
+  "mixtral-8x7b-32768",       // High context
+  "gemma2-9b-it",             // Fast alternative
+  "llama3-70b-8192",          // Legacy reliable
+  "llama3-8b-8192"            // Fast legacy
 ];
 
 /**

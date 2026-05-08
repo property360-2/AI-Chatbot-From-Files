@@ -36,8 +36,10 @@ if (!admin.apps.length) {
       credential: admin.credential.cert(serviceAccount),
     });
     console.log('Firebase Admin initialized successfully');
-  } catch (error) {
-    console.error('Firebase admin initialization error', error);
+  } catch (error: any) {
+    console.error('CRITICAL: Firebase admin initialization failed.');
+    console.error('Ensure FIREBASE_SERVICE_ACCOUNT env var is set in Vercel.');
+    console.error('Error details:', error.message);
   }
 }
 
