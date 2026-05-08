@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       .collection('documents')
       .get();
 
-    const documents = docsSnapshot.docs.map(doc => ({
+    const documents = docsSnapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
@@ -58,7 +58,7 @@ export async function DELETE(request: NextRequest) {
         .get();
         
       const batch = adminDb.batch();
-      chunksSnapshot.docs.forEach(doc => {
+      chunksSnapshot.docs.forEach((doc: any) => {
         batch.delete(doc.ref);
       });
       await batch.commit();

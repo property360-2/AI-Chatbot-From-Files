@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const existingChunksQuery = await chunksRef.where('metadata.source', '==', file.name).get();
     if (!existingChunksQuery.empty) {
       const deleteBatch = adminDb.batch();
-      existingChunksQuery.docs.forEach(doc => deleteBatch.delete(doc.ref));
+      existingChunksQuery.docs.forEach((doc: any) => deleteBatch.delete(doc.ref));
       await deleteBatch.commit();
       console.log(`[Upload] Cleared ${existingChunksQuery.size} existing chunks for ${file.name}`);
     }

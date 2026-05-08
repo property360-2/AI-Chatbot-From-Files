@@ -19,7 +19,7 @@ export async function* performStreamingRAG(query: string, userId: string, histor
       return;
     }
 
-    const chunks = chunksSnapshot.docs.map(doc => doc.data());
+    const chunks = chunksSnapshot.docs.map((doc: any) => doc.data());
     const queryEmbedding = await generateEmbeddings(query);
 
     const similarities = chunks.map((chunk: any) => ({
