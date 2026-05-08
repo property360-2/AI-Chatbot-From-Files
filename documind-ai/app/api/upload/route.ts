@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromPDF, chunkText } from '@/lib/pdf';
 import { generateEmbeddings } from '@/lib/embeddings';
-import { adminDb } from '@/lib/firebase-admin';
+import { adminDb, adminAuth } from '@/lib/firebase-admin';
 
 /**
  * POST /api/upload
@@ -47,6 +47,15 @@ export async function POST(request: NextRequest) {
 
     // Batch process embeddings and save to Firestore in chunks to avoid "Transaction too big" error
     const chunksRef = adminDb.collection('users').doc(userId).collection('chunks');
+    
+    // Clear existing chunks for this file to prevent duplicate context
+    const existingChunksQuery = await chunksRef.where('metadata.source', '==', file.name).get();
+    if (!existingChunksQuery.empty) {
+      const deleteBatch = adminDb.batch();
+      existingChunksQuery.docs.forEach(doc => deleteBatch.delete(doc.ref));
+      await deleteBatch.commit();
+      console.log(`[Upload] Cleared ${existingChunksQuery.size} existing chunks for ${file.name}`);
+    }
     const BATCH_SIZE = 100; // Firestore limit is 500, but 100 is safer for large embedding payloads
     
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {

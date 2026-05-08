@@ -68,9 +68,12 @@ export default function ChatInterface() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [convToDelete, setConvToDelete] = useState<string | null>(null);
+  const [fileToOverwrite, setFileToOverwrite] = useState<File | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const libraryTimer = useRef<NodeJS.Timeout | null>(null);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -227,9 +230,15 @@ export default function ChatInterface() {
     setMessages([]);
   };
 
-  const deleteConversation = async (convId: string, e: React.MouseEvent) => {
+  const deleteConversation = (convId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user || !confirm('Are you sure you want to delete this conversation?')) return;
+    setConvToDelete(convId);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!user || !convToDelete) return;
+    const convId = convToDelete;
+    setConvToDelete(null);
 
     try {
       // 1. Delete all messages first
@@ -248,6 +257,16 @@ export default function ChatInterface() {
       console.error('Delete conversation failed:', error);
     }
   };
+
+  const handleLibraryHover = (open: boolean) => {
+    if (libraryTimer.current) clearTimeout(libraryTimer.current);
+    if (open) {
+      setIsLibraryOpen(true);
+    } else {
+      libraryTimer.current = setTimeout(() => setIsLibraryOpen(false), 300);
+    }
+  };
+
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,11 +368,8 @@ export default function ChatInterface() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
+  const performUpload = async (file: File) => {
+    if (!user) return;
     setIsUploading(true);
 
     try {
@@ -395,6 +411,22 @@ export default function ChatInterface() {
       setIsUploading(false);
     }
   };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+
+    // Check for duplicates
+    if (uploadedFiles.some(f => f.name === file.name)) {
+      setFileToOverwrite(file);
+      return;
+    }
+
+    performUpload(file);
+  };
+
 
   if (authLoading) {
     return (
@@ -728,16 +760,20 @@ export default function ChatInterface() {
             <div className="relative max-w-3xl mx-auto">
               <form
                 onSubmit={handleSendMessage}
-                className="flex items-center bg-card border border-border/50 focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all group rounded-2xl shadow-lg backdrop-blur-md relative overflow-hidden"
+                className="flex items-center bg-card border border-border/50 focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all group rounded-2xl shadow-lg backdrop-blur-md relative"
               >
                 {/* Upload Button */}
-                <div className="relative group/menu h-full border-r border-border/30 hover:bg-accent/5 transition-colors">
+                <div 
+                  className="relative h-full border-r border-border/30 hover:bg-accent/5 transition-colors"
+                  onMouseEnter={() => handleLibraryHover(true)}
+                  onMouseLeave={() => handleLibraryHover(false)}
+                >
                   <label 
-                    className="h-full px-4 md:px-5 flex items-center justify-center cursor-pointer hover:text-accent transition-colors relative min-h-[56px] md:min-h-[60px] focus-within:ring-2 focus-within:ring-accent/50"
+                    className="h-full px-4 md:px-5 flex items-center justify-center cursor-pointer hover:text-accent transition-colors relative min-h-[56px] md:min-h-[60px] focus-within:ring-2 focus-within:ring-accent/50 rounded-l-2xl"
                     aria-label="Upload PDF Document"
                   >
                     <div className="relative p-1">
-                      <Plus size={20} className="transition-transform group-hover:scale-110" />
+                      <Plus size={20} className={cn("transition-transform", isLibraryOpen ? "rotate-45 scale-110 text-accent" : "")} />
                       {uploadedFiles.length > 0 && (
                         <div className="absolute top-[-2px] right-[-4px] w-4 h-4 bg-accent rounded-full flex items-center justify-center text-[8px] font-bold text-white border-2 border-card shadow-sm transition-all duration-300">
                           {uploadedFiles.length}
@@ -755,46 +791,55 @@ export default function ChatInterface() {
                   </label>
 
                   {/* Context Menu for Documents */}
-                  <div className="absolute bottom-full left-0 mb-4 w-80 bg-card/95 backdrop-blur-xl border border-border p-0 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all z-50 rounded-2xl shadow-2xl overflow-hidden translate-y-2 group-hover/menu:translate-y-0">
-                    <div className="text-[10px] font-bold uppercase text-accent bg-accent/5 px-4 py-3 tracking-widest border-b border-border flex justify-between items-center">
-                      <span>Document Library</span>
-                      <span className="bg-accent/10 px-2 py-0.5 rounded-full text-[9px]">{uploadedFiles.length} files</span>
-                    </div>
-                    <div className="max-h-72 overflow-y-auto custom-scrollbar">
-                      {uploadedFiles.length === 0 ? (
-                        <div className="py-12 flex flex-col items-center justify-center text-center px-6">
-                          <Upload size={24} className="text-secondary/20 mb-3" />
-                          <p className="text-xs text-secondary font-medium">No documents uploaded yet.</p>
+                  <AnimatePresence>
+                    {isLibraryOpen && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="absolute bottom-full left-0 mb-4 w-80 bg-card/95 backdrop-blur-xl border border-border p-0 z-50 rounded-2xl shadow-2xl overflow-hidden"
+                      >
+                        <div className="text-[10px] font-bold uppercase text-accent bg-accent/5 px-4 py-3 tracking-widest border-b border-border flex justify-between items-center">
+                          <span>Document Library</span>
+                          <span className="bg-accent/10 px-2 py-0.5 rounded-full text-[9px]">{uploadedFiles.length} files</span>
                         </div>
-                      ) : (
-                        <div className="divide-y divide-border/30">
-                          {uploadedFiles.map((file, i) => (
-                            <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-accent/5 transition-colors group/item">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="p-2 bg-accent/5 rounded-lg text-accent">
-                                  <FileText size={14} />
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-xs font-semibold truncate text-foreground/90">{file.name}</span>
-                                  <span className="text-[10px] text-secondary font-medium">{file.size}</span>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteDocument(file.name);
-                                }}
-                                className="text-secondary/30 hover:text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-all"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                        <div className="max-h-72 overflow-y-auto custom-scrollbar">
+                          {uploadedFiles.length === 0 ? (
+                            <div className="py-12 flex flex-col items-center justify-center text-center px-6">
+                              <Upload size={24} className="text-secondary/20 mb-3" />
+                              <p className="text-xs text-secondary font-medium">No documents uploaded yet.</p>
                             </div>
-                          ))}
+                          ) : (
+                            <div className="divide-y divide-border/30">
+                              {uploadedFiles.map((file, i) => (
+                                <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-accent/5 transition-colors group/item">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="p-2 bg-accent/5 rounded-lg text-accent">
+                                      <FileText size={14} />
+                                    </div>
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="text-xs font-semibold truncate text-foreground/90">{file.name}</span>
+                                      <span className="text-[10px] text-secondary font-medium">{file.size}</span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteDocument(file.name);
+                                    }}
+                                    className="text-secondary/30 hover:text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-all"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 <input
@@ -809,7 +854,7 @@ export default function ChatInterface() {
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading || isUploading}
-                  className="px-4 md:px-6 h-full flex items-center justify-center text-secondary hover:text-accent disabled:opacity-30 transition-all border-l border-border/30 hover:bg-accent/5 focus:outline-none focus:bg-accent/5"
+                  className="px-4 md:px-6 h-full flex items-center justify-center text-secondary hover:text-accent disabled:opacity-30 transition-all border-l border-border/30 hover:bg-accent/5 focus:outline-none focus:bg-accent/5 rounded-r-2xl"
                   aria-label="Send Message"
                 >
                   {isLoading ? <Loader2 size={18} className="animate-spin text-accent" /> : <Send size={18} />}
@@ -819,6 +864,97 @@ export default function ChatInterface() {
           </div>
         </main>
       </div>
+
+      {/* Modern Delete Confirmation Modal */}
+      <AnimatePresence>
+        {convToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/40 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="w-full max-w-sm bg-card border border-border rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Trash2 className="text-red-500" size={28} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Delete Conversation?</h3>
+                <p className="text-secondary text-sm leading-relaxed mb-8">
+                  This action cannot be undone. All messages in this thread will be permanently erased from our records.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => confirmDeleteConversation()}
+                    className="w-full py-4 bg-red-500 hover:bg-red-600 text-white font-bold rounded-2xl transition-all shadow-lg shadow-red-500/20 active:scale-[0.98]"
+                  >
+                    Delete Thread
+                  </button>
+                  <button
+                    onClick={() => setConvToDelete(null)}
+                    className="w-full py-4 bg-accent/5 hover:bg-accent/10 text-foreground font-bold rounded-2xl transition-all active:scale-[0.98]"
+                  >
+                    Keep it
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modern Overwrite Confirmation Modal */}
+      <AnimatePresence>
+        {fileToOverwrite && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/40 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="w-full max-w-sm bg-card border border-border rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Upload className="text-accent" size={28} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Duplicate Document?</h3>
+                <p className="text-secondary text-sm leading-relaxed mb-8">
+                  A document named <span className="text-foreground font-bold">"{fileToOverwrite.name}"</span> already exists. Do you want to overwrite it and update the context?
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      const file = fileToOverwrite;
+                      setFileToOverwrite(null);
+                      performUpload(file);
+                    }}
+                    className="w-full py-4 bg-accent hover:bg-accent/90 text-white font-bold rounded-2xl transition-all shadow-lg shadow-accent/20 active:scale-[0.98]"
+                  >
+                    Overwrite & Update
+                  </button>
+                  <button
+                    onClick={() => setFileToOverwrite(null)}
+                    className="w-full py-4 bg-accent/5 hover:bg-accent/10 text-foreground font-bold rounded-2xl transition-all active:scale-[0.98]"
+                  >
+                    Cancel Upload
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
