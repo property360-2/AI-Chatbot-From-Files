@@ -1,42 +1,60 @@
 /**
- * Local Embeddings using @xenova/transformers
- * This avoids all Google API 404/versioning issues by running locally.
+ * Stable Google Generative AI Embeddings
+ * 
+ * Uses the stable v1 REST API to avoid versioning issues and environment constraints.
+ * This is the recommended approach for Vercel Serverless environments.
+ * Dimensions: 768
  */
 
-// Dynamic import to avoid issues with some environments
-let pipeline: any = null;
-
-async function getPipeline() {
-  if (!pipeline) {
-    const { pipeline: transformersPipeline } = await import('@xenova/transformers');
-    // Using a lightweight but effective model (384 dimensions)
-    pipeline = await transformersPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-  }
-  return pipeline;
-}
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 
 /**
- * Generates an embedding for a given text locally.
+ * Generates an embedding for a given text using Google's API.
  */
 export async function generateEmbeddings(text: string): Promise<number[]> {
-  try {
-    if (!text || text.trim().length === 0) {
-      return new Array(384).fill(0); 
-    }
-
-    const extractor = await getPipeline();
-    const output = await extractor(text, { pooling: 'mean', normalize: true });
-    
-    // Convert Float32Array to regular array
-    return Array.from(output.data);
-  } catch (error: any) {
-    console.error("[Local Embeddings Error] Failed:", error.message);
-    throw new Error(`Local embedding generation failed: ${error.message}`);
+  if (!GOOGLE_API_KEY) {
+    throw new Error("GOOGLE_API_KEY is missing. Check your .env.local or Vercel Environment Variables.");
   }
+
+  const cleanedText = text.replace(/\n/g, " ").trim();
+  if (!cleanedText) return new Array(768).fill(0);
+
+  // Try text-embedding-004 first (latest)
+  const models = ["text-embedding-004", "embedding-001"];
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1/models/${model}:embedContent?key=${GOOGLE_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: { parts: [{ text: cleanedText }] },
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok && data.embedding?.values) {
+        return data.embedding.values;
+      }
+
+      lastError = data.error?.message || "Unknown error";
+      console.warn(`[Embeddings] Model ${model} failed: ${lastError}`);
+    } catch (error: any) {
+      lastError = error.message;
+      console.error(`[Embeddings] Connection error with model ${model}: ${error.message}`);
+    }
+  }
+
+  throw new Error(`Failed to generate embeddings after trying all models: ${lastError}`);
 }
 
 /**
- * Calculates cosine similarity between two vectors.
+ * Calculates cosine similarity between dalawang vectors.
  */
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
