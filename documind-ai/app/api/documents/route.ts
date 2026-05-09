@@ -57,7 +57,7 @@ export async function DELETE(request: NextRequest) {
       console.log(`[Documents API] Clearing ${docs.length} chunks for document: ${id}`);
       
       // Delete in parallel to avoid batch limits and stay within Vercel execution time
-      await Promise.all(docs.map(d => d.ref.delete()));
+      await Promise.all(docs.map((d: any) => d.ref.delete()));
       console.log(`[Documents API] Successfully deleted all chunks.`);
     }
 

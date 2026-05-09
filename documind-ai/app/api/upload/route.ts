@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Upload API] Clearing ${docs.length} existing chunks individually...`);
       
       // Delete in parallel to be faster than sequential but avoid batch limits
-      await Promise.all(docs.map(d => d.ref.delete()));
+      await Promise.all(docs.map((d: any) => d.ref.delete()));
       console.log(`[Upload API] Successfully cleared all ${docs.length} chunks.`);
     }
 
