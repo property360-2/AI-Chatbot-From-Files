@@ -48,10 +48,13 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
 
     // Extract text and chunk it
-    console.log('[Upload API] Extracting text from PDF...');
+    console.log('[Upload API] Step 1: Extracting text from PDF...');
     const text = await extractTextFromPDF(buffer);
+    console.log(`[Upload API] Step 1 complete. Text length: ${text.length}`);
+    
+    console.log('[Upload API] Step 2: Chunking text...');
     const chunks = chunkText(text);
-    console.log(`[Upload API] Text extracted. Generated ${chunks.length} chunks.`);
+    console.log(`[Upload API] Step 2 complete. Generated ${chunks.length} chunks.`);
 
     if (!adminDb) {
       throw new Error('Firestore Admin DB not initialized');
@@ -59,68 +62,39 @@ export async function POST(request: NextRequest) {
 
     const chunksRef = adminDb.collection('users').doc(userId).collection('chunks');
     
-    // Clear existing chunks for this file
-    console.log(`[Upload API] Checking for existing chunks for: ${file.name}`);
+    // Clear existing chunks for this file to avoid duplicates (Batched to avoid "Transaction too big")
+    console.log(`[Upload API] Checking for existing chunks to clear for: ${file.name}`);
     const existingChunksQuery = await chunksRef.where('metadata.source', '==', file.name).get();
-    if (!existingChunksQuery.empty) {
-      console.log(`[Upload API] Deleting ${existingChunksQuery.size} existing chunks...`);
-      const deleteBatch = adminDb.batch();
-      existingChunksQuery.docs.forEach((doc: any) => deleteBatch.delete(doc.ref));
-      await deleteBatch.commit();
-    }
-
-    const BATCH_SIZE = 50; // Smaller batch size for production reliability
     
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const batch = adminDb.batch();
-      const currentBatchChunks = chunks.slice(i, i + BATCH_SIZE);
+    if (!existingChunksQuery.empty) {
+      const docs = existingChunksQuery.docs;
+      console.log(`[Upload API] Clearing ${docs.length} existing chunks individually...`);
       
-      console.log(`[Upload API] Processing batch ${Math.floor(i / BATCH_SIZE) + 1} (${currentBatchChunks.length} chunks)`);
-      
-      for (let j = 0; j < currentBatchChunks.length; j++) {
-        const content = currentBatchChunks[j];
-        try {
-          const embedding = await generateEmbeddings(content);
-          
-          const chunkDoc = {
-            id: `${file.name}-${i + j}-${Date.now()}`,
-            content,
-            embedding,
-            metadata: { 
-              source: file.name,
-              uploadedAt: new Date().toISOString()
-            }
-          };
-
-          const docRef = chunksRef.doc(chunkDoc.id);
-          batch.set(docRef, chunkDoc);
-        } catch (embedError: any) {
-          console.error(`[Upload API] Embedding error at chunk ${i + j}:`, embedError.message);
-          throw embedError;
-        }
-      }
-      
-      await batch.commit();
-      console.log(`[Upload API] Batch ${Math.floor(i / BATCH_SIZE) + 1} committed.`);
+      // Delete in parallel to be faster than sequential but avoid batch limits
+      await Promise.all(docs.map(d => d.ref.delete()));
+      console.log(`[Upload API] Successfully cleared all ${docs.length} chunks.`);
     }
 
-    // Update document metadata
-    console.log('[Upload API] Updating file metadata...');
+    // Initialize document metadata with 'processing' status
+    console.log('[Upload API] Step 4: Saving document metadata...');
     const docRef = adminDb.collection('users').doc(userId).collection('files').doc(file.name);
     const newDoc = {
       id: `${Date.now()}`,
       name: file.name,
       size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
-      uploadedAt: new Date().toISOString()
+      uploadedAt: new Date().toISOString(),
+      status: 'processing',
+      totalChunks: chunks.length
     };
     await docRef.set(newDoc);
+    console.log('[Upload API] Step 4 complete. Metadata saved.');
 
-    console.log('[Upload API] Process complete!');
+    console.log('[Upload API] Step 5: Returning success response...');
     return NextResponse.json({ 
       success: true, 
       document: newDoc,
-      chunksCount: chunks.length,
-      message: 'File processed and stored.' 
+      chunks: chunks, // Return chunks for client-side orchestration
+      message: 'File uploaded and chunks prepared.' 
     });
 
   } catch (error: any) {

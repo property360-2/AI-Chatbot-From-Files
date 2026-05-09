@@ -16,10 +16,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    const docsSnapshot = await adminDb
+    // Using 'files' to be consistent with /api/upload and ChatInterface
+    const docsSnapshot = await adminDb!
       .collection('users')
       .doc(userId)
-      .collection('documents')
+      .collection('files')
       .get();
 
     const documents = docsSnapshot.docs.map((doc: any) => ({
@@ -41,32 +42,28 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'ID and User ID are required' }, { status: 400 });
     }
 
-    const userRef = adminDb.collection('users').doc(userId);
+    const userRef = adminDb!.collection('users').doc(userId);
     
-    // 1. Delete document metadata
-    await userRef.collection('documents').doc(id).delete();
+    // 1. Delete document metadata from 'files'
+    await userRef.collection('files').doc(id).delete();
 
-    // 2. Delete associated chunks (we need to find them by source name)
-    // Note: In a production app, we'd store the docId in chunks to make this efficient.
-    // For now, we'll query by metadata.source if available.
-    const docRef = await userRef.collection('documents').doc(id).get();
-    const docData = docRef.data();
-    
-    if (docData?.name) {
-      const chunksSnapshot = await userRef.collection('chunks')
-        .where('metadata.source', '==', docData.name)
-        .get();
+    // 2. Delete associated chunks in batches to avoid "Transaction too big"
+    const chunksSnapshot = await userRef.collection('chunks')
+      .where('metadata.source', '==', id)
+      .get();
         
-      const batch = adminDb.batch();
-      chunksSnapshot.docs.forEach((doc: any) => {
-        batch.delete(doc.ref);
-      });
-      await batch.commit();
+    if (!chunksSnapshot.empty) {
+      const docs = chunksSnapshot.docs;
+      console.log(`[Documents API] Clearing ${docs.length} chunks for document: ${id}`);
+      
+      // Delete in parallel to avoid batch limits and stay within Vercel execution time
+      await Promise.all(docs.map(d => d.ref.delete()));
+      console.log(`[Documents API] Successfully deleted all chunks.`);
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete error:', error);
-    return NextResponse.json({ error: 'Failed to delete document' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete document', details: error.message }, { status: 500 });
   }
 }

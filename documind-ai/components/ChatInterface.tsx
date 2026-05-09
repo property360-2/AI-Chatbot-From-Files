@@ -73,6 +73,8 @@ export default function ChatInterface() {
   const [fileToOverwrite, setFileToOverwrite] = useState<File | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState('');
   const libraryTimer = useRef<NodeJS.Timeout | null>(null);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -370,61 +372,91 @@ export default function ChatInterface() {
   };
 
   const performUpload = async (file: File) => {
-    if (!user) {
-      console.error('[Upload Debug] No user logged in');
-      return;
-    }
+    if (!user) return;
+    
     setIsUploading(true);
-    console.log('[Upload Debug] Starting upload for:', file.name);
-
+    setUploadProgress(0);
+    setUploadStatus('Uploading and parsing PDF...');
+    
     try {
+      const idToken = await user.getIdToken();
+      
+      // Phase 1: Upload and get chunks
       const formData = new FormData();
       formData.append('file', file);
       formData.append('userId', user.uid);
 
-      console.log('[Upload Debug] Fetching ID Token...');
-      const idToken = await user.getIdToken();
-      console.log('[Upload Debug] ID Token obtained (first 10 chars):', idToken.substring(0, 10));
-
-      const response = await fetch('/api/upload', {
+      const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`
-        },
+        headers: { 'Authorization': `Bearer ${idToken}` },
         body: formData,
       });
 
-      console.log('[Upload Debug] Server responded with status:', response.status);
-      
-      const data = await response.json().catch(err => {
-        console.error('[Upload Debug] Failed to parse JSON response:', err);
-        return { error: 'Invalid JSON response from server' };
-      });
-
-      console.log('[Upload Debug] Server response data:', data);
-
-      if (!response.ok) {
-        throw new Error(data.details || data.error || 'Upload failed');
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json();
+        throw new Error(errorData.details || errorData.error || 'Upload failed');
       }
 
-      setUploadedFiles(prev => [...prev, {
-        name: data.document.name,
-        size: data.document.size
-      }]);
+      const { chunks, document: docMetadata } = await uploadResponse.json();
+      const totalChunks = chunks.length;
+      
+      setUploadStatus(`Generating embeddings for ${totalChunks} chunks...`);
 
-      const assistantMessage: Message = {
+      // Phase 2: Process chunks in small batches
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
+        const currentBatch = chunks.slice(i, i + BATCH_SIZE);
+        const isLastBatch = (i + BATCH_SIZE) >= totalChunks;
+        
+        const batchResponse = await fetch('/api/process-batch', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            userId: user.uid,
+            fileName: file.name,
+            chunks: currentBatch,
+            startIndex: i,
+            isLastBatch
+          }),
+        });
+
+        if (!batchResponse.ok) {
+          const errorData = await batchResponse.json();
+          throw new Error(`Batch processing failed: ${errorData.error}`);
+        }
+
+        // Update progress
+        const progressed = Math.min(Math.round(((i + currentBatch.length) / totalChunks) * 100), 100);
+        setUploadProgress(progressed);
+        setUploadStatus(`Analyzing context: ${progressed}%`);
+      }
+
+      setUploadedFiles(prev => {
+        const exists = prev.some(f => f.name === docMetadata.name);
+        if (exists) return prev;
+        return [...prev, {
+          name: docMetadata.name,
+          size: docMetadata.size
+        }];
+      });
+
+      setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `Successfully uploaded and processed "${file.name}". You can now ask questions about it!`,
+        content: `Successfully processed "${file.name}". I've analyzed all ${totalChunks} parts of the document. What would you like to know?`,
         timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+      }]);
+
     } catch (error: any) {
-      console.error('[Upload Debug] Catch block error:', error);
-      alert(`Upload failed: ${error.message}`);
+      console.error('[Upload Error]', error);
+      alert(`Processing failed: ${error.message}`);
     } finally {
-      setIsLoading(false);
       setIsUploading(false);
+      setUploadProgress(0);
+      setUploadStatus('');
     }
   };
 
@@ -679,13 +711,24 @@ export default function ChatInterface() {
                     </motion.div>
                   </div>
                 </div>
-                <div className="flex flex-col items-center gap-2 text-center px-6">
-                  <h3 className="text-sm font-bold uppercase tracking-[0.5em] text-accent animate-pulse">Processing_Document</h3>
-                  <p className="text-[10px] font-medium text-secondary/60 max-w-[250px] leading-relaxed uppercase tracking-widest">
-                    Extracting text, analyzing context, and preparing your intelligence support.
-                  </p>
-                  <p className="text-[10px] font-medium text-secondary/60 max-w-[250px] leading-relaxed uppercase tracking-widest">
-                    naka-depend sa length ng document yung speed ng upload
+                <div className="flex flex-col items-center gap-6 text-center px-6 w-full max-w-sm">
+                  <div className="space-y-2 w-full">
+                    <h3 className="text-[10px] font-bold uppercase tracking-[0.5em] text-accent">{uploadStatus}</h3>
+                    {/* Progress Bar Container */}
+                    <div className="h-1.5 w-full bg-accent/10 rounded-full overflow-hidden border border-accent/5">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${uploadProgress}%` }}
+                        className="h-full bg-accent"
+                      />
+                    </div>
+                    <div className="flex justify-between items-center px-1">
+                      <span className="text-[8px] font-bold text-accent/40 uppercase tracking-widest">Progress</span>
+                      <span className="text-[10px] font-bold text-accent">{uploadProgress}%</span>
+                    </div>
+                  </div>
+                  <p className="text-[9px] font-medium text-secondary/40 max-w-[250px] leading-relaxed uppercase tracking-[0.2em]">
+                    Bypassing server limits to ensure deep document analysis...
                   </p>
                 </div>
               </motion.div>

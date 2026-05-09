@@ -1,61 +1,56 @@
-import { pipeline } from '@xenova/transformers';
-
 /**
- * Local Embeddings Singleton
- * Uses '@xenova/transformers' to run a lightweight model (all-MiniLM-L6-v2) locally.
- * This avoids external API calls for embeddings, making it faster and free.
+ * Local Embeddings using @xenova/transformers
+ * This avoids all Google API 404/versioning issues by running locally.
  */
-class EmbeddingPipeline {
-  static instance: any = null;
 
-  static async getInstance() {
-    if (this.instance === null) {
-      console.log('[Embeddings] Loading local transformation model...');
-      this.instance = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-      console.log('[Embeddings] Model loaded successfully.');
-    }
-    return this.instance;
+// Dynamic import to avoid issues with some environments
+let pipeline: any = null;
+
+async function getPipeline() {
+  if (!pipeline) {
+    const { pipeline: transformersPipeline } = await import('@xenova/transformers');
+    // Using a lightweight but effective model (384 dimensions)
+    pipeline = await transformersPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
   }
+  return pipeline;
 }
 
 /**
- * Generate embeddings for a given text using a local transformer model.
- * Model: all-MiniLM-L6-v2 (384 dimensions)
+ * Generates an embedding for a given text locally.
  */
 export async function generateEmbeddings(text: string): Promise<number[]> {
   try {
-    const extractor = await EmbeddingPipeline.getInstance();
-    const output = await extractor(text, {
-      pooling: 'mean',
-      normalize: true,
-    });
+    if (!text || text.trim().length === 0) {
+      return new Array(384).fill(0); 
+    }
 
-    // Extract the vector data from the tensor
+    const extractor = await getPipeline();
+    const output = await extractor(text, { pooling: 'mean', normalize: true });
+    
+    // Convert Float32Array to regular array
     return Array.from(output.data);
   } catch (error: any) {
-    console.error("[Embeddings] Error generating local vectors:", error.message);
-    throw new Error(`Failed to generate local embeddings: ${error.message}`);
+    console.error("[Local Embeddings Error] Failed:", error.message);
+    throw new Error(`Local embedding generation failed: ${error.message}`);
   }
 }
 
 /**
- * Calculate cosine similarity between two vectors.
+ * Calculates cosine similarity between two vectors.
  */
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length) {
-    // Return 0 if dimensions don't match (happens if model changed)
-    return 0;
-  }
+  if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
   
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
+  
   for (let i = 0; i < vecA.length; i++) {
     dotProduct += vecA[i] * vecB[i];
     normA += vecA[i] * vecA[i];
     normB += vecB[i] * vecB[i];
   }
   
-  if (normA === 0 || normB === 0) return 0;
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  return isNaN(similarity) ? 0 : similarity;
 }
