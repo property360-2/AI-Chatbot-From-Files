@@ -21,23 +21,19 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase for Client-side only when keys are present
-let app: any = null;
-let auth: any = null;
-let db: any = null;
+// Initialize Firebase for Client-side
+let app: any;
+let auth: any;
+let db: any;
 
-if (typeof window !== "undefined") {
-  if (firebaseConfig.apiKey) {
-    try {
-      app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-      auth = getAuth(app);
-      db = getFirestore(app);
-    } catch (error) {
-      console.error("Firebase initialization failed:", error);
-    }
-  } else {
-    console.warn("Firebase API Key is missing. Auth and Firestore will be unavailable.");
+try {
+  if (typeof window !== "undefined") {
+    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
   }
+} catch (error) {
+  console.error("Firebase initialization failed:", error);
 }
 
 export { auth, db };

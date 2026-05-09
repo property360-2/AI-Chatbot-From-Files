@@ -50,6 +50,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     const provider = new GoogleAuthProvider();
     
     try {
+      if (!auth) {
+        throw new Error("Authentication service is not initialized. Please check your connection.");
+      }
       await signInWithPopup(auth, provider);
       onLoginSuccess();
     } catch (err: any) {

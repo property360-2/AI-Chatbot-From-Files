@@ -100,6 +100,10 @@ export default function ChatInterface() {
 
   // Auth Listener
   useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
@@ -118,7 +122,7 @@ export default function ChatInterface() {
 
   // Firestore Data Synchronization
   useEffect(() => {
-    if (!user) return;
+    if (!user || !db) return;
 
     // 1. Sync Conversations List
     const convsQuery = query(
@@ -186,6 +190,7 @@ export default function ChatInterface() {
       setShowLogoutConfirm(true);
       return;
     }
+    if (!auth) return;
     try {
       await signOut(auth);
     } catch (error) {
