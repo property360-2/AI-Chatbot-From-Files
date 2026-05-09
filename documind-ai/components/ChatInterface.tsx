@@ -370,16 +370,21 @@ export default function ChatInterface() {
   };
 
   const performUpload = async (file: File) => {
-    if (!user) return;
+    if (!user) {
+      console.error('[Upload Debug] No user logged in');
+      return;
+    }
     setIsUploading(true);
+    console.log('[Upload Debug] Starting upload for:', file.name);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('userId', user.uid);
 
-      // Get ID Token for secure API call
+      console.log('[Upload Debug] Fetching ID Token...');
       const idToken = await user.getIdToken();
+      console.log('[Upload Debug] ID Token obtained (first 10 chars):', idToken.substring(0, 10));
 
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -389,14 +394,20 @@ export default function ChatInterface() {
         body: formData,
       });
 
-      const data = await response.json().catch(() => ({ error: 'Upload failed' }));
+      console.log('[Upload Debug] Server responded with status:', response.status);
+      
+      const data = await response.json().catch(err => {
+        console.error('[Upload Debug] Failed to parse JSON response:', err);
+        return { error: 'Invalid JSON response from server' };
+      });
+
+      console.log('[Upload Debug] Server response data:', data);
 
       if (!response.ok) {
-        throw new Error(data.error || data.details || 'Upload failed');
+        throw new Error(data.details || data.error || 'Upload failed');
       }
 
       setUploadedFiles(prev => [...prev, {
-        id: data.document.id,
         name: data.document.name,
         size: data.document.size
       }]);
@@ -409,7 +420,7 @@ export default function ChatInterface() {
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error: any) {
-      console.error('Upload error:', error);
+      console.error('[Upload Debug] Catch block error:', error);
       alert(`Upload failed: ${error.message}`);
     } finally {
       setIsLoading(false);

@@ -23,13 +23,11 @@ if (!admin.apps.length) {
     if (!serviceAccount && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
       console.log('[Firebase Admin] Initializing with individual environment variables');
       
-      const header = "-----BEGIN PRIVATE KEY-----";
-      const footer = "-----END PRIVATE KEY-----";
-      
-      // The Ultimate PEM Reconstructor
-      let rawKey = process.env.FIREBASE_PRIVATE_KEY.replace(/"/g, "").replace(/\\n/g, "\n").trim();
-      let body = rawKey.replace(header, "").replace(footer, "").replace(/\s+/g, "");
-      const fixedKey = `${header}\n${body}\n${footer}`;
+      // Standard PEM reconstruction for Vercel/Node
+      const fixedKey = process.env.FIREBASE_PRIVATE_KEY
+        .replace(/"/g, "")
+        .replace(/\\n/g, "\n")
+        .trim();
 
       serviceAccount = {
         projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,

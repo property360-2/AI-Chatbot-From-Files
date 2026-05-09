@@ -1,8 +1,5 @@
 import './polyfill';
-import * as _pdf from 'pdf-parse';
-
-// Handle CJS/ESM interop for pdf-parse
-const pdf = (_pdf as any).default || _pdf;
+const pdf = require('pdf-parse');
 
 /**
  * Extract text content from a PDF buffer.
@@ -11,11 +8,28 @@ const pdf = (_pdf as any).default || _pdf;
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
-    const data = await pdf(buffer);
-    return data.text.replace(/\s+/g, ' ').trim();
-  } catch (error) {
-    console.error("Error parsing PDF:", error);
-    throw new Error("Failed to parse PDF document.");
+    // This modern fork (v2.4.5) uses a class-based API
+    const { PDFParse } = require('pdf-parse');
+    
+    if (!PDFParse) {
+      throw new Error("Could not find PDFParse class in pdf-parse module.");
+    }
+
+    // Initialize the parser with the buffer data
+    // We disable worker fetch and reduce verbosity to avoid Node.js environment issues
+    const parser = new PDFParse({ 
+      data: buffer,
+      verbosity: 0,
+      useWorkerFetch: false
+    });
+    
+    // Extract text using the getText() method
+    const result = await parser.getText();
+    
+    return result.text.replace(/\s+/g, ' ').trim();
+  } catch (error: any) {
+    console.error("[PDF Error] Error parsing PDF:", error.message);
+    throw new Error(`Failed to parse PDF document: ${error.message}`);
   }
 }
 

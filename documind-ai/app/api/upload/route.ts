@@ -125,14 +125,10 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('[Upload API] Fatal Error:', error);
-    // Be specific about common errors in Vercel
-    let errorMessage = 'Failed to process document';
-    if (error.message.includes('pdf-parse')) errorMessage = 'PDF Parsing failed. Check polyfills.';
-    if (error.message.includes('Groq')) errorMessage = 'Embedding generation failed.';
     
     return NextResponse.json({ 
-      error: errorMessage, 
-      details: error.message,
+      error: 'Failed to process document', 
+      details: error.message || 'Unknown error occurred',
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 });
   }

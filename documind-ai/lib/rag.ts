@@ -67,8 +67,8 @@ export async function* performStreamingRAG(query: string, userId: string, histor
       }
     }
 
-  } catch (error) {
-    console.error('Streaming RAG Error:', error);
-    yield "Error processing your request.";
+  } catch (error: any) {
+    console.error('Streaming RAG Fatal Error:', error);
+    yield `Error processing your request: ${error.message || "Unknown error"}`;
   }
 }
