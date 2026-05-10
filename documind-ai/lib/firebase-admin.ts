@@ -23,10 +23,12 @@ if (!admin.apps.length) {
     if (!serviceAccount && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
       console.log('[Firebase Admin] Initializing with individual environment variables');
       
-      // Standard PEM reconstruction for Vercel/Node
-      const fixedKey = process.env.FIREBASE_PRIVATE_KEY
-        .replace(/"/g, "")
-        .replace(/\\n/g, "\n")
+      // Robust PEM reconstruction for Vercel/Node
+      // This handles true newlines, escaped \n, and accidental quotes
+      const rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
+      const fixedKey = rawKey
+        .replace(/"/g, '') // Remove accidental quotes
+        .replace(/\\n/g, '\n') // Convert literal \n to real newlines
         .trim();
 
       serviceAccount = {
