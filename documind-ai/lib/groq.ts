@@ -11,17 +11,12 @@ if (!apiKey) {
  * Ordered by quality then availability based on quota limits.
  */
 export const MODELS = [
-  "llama-3.3-70b-versatile",                         // Best quality fallback on Groq
-  "meta-llama/llama-4-scout-17b-16e-instruct",       // User specific
-  "qwen/qwen3-32b",                                  // User specific
-  "llama-3.1-8b-instant",                            // Fast & Reliable
-  "groq/compound",                                   // User specific
-  "groq/compound-mini",                              // User specific
-  "openai/gpt-oss-120b",                             // User specific
-  "openai/gpt-oss-20b",                              // User specific
-  "allam-2-7b",                                      // User specific
-  "mixtral-8x7b-32768",                              // Context King
-  "gemma2-9b-it"                                     // Reliable fallback
+  "llama-3.1-8b-instant",       // #1 Choice: Extremely fast, perfect for RAG
+  "llama-3.3-70b-versatile",    // High quality, but slower
+  "llama3-70b-8192",            // Standard reliable 70B
+  "mixtral-8x7b-32768",         // Great for large context
+  "gemma2-9b-it",               // Solid fallback
+  "llama3-8b-8192"              // Legacy but fast fallback
 ];
 
 /**
