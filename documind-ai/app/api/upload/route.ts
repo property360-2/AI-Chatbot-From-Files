@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       for (let i = 0; i < deleteDocs.length; i += batchSize) {
         const batch = adminDb.batch();
         const currentBatch = deleteDocs.slice(i, i + batchSize);
-        currentBatch.forEach(doc => batch.delete(doc.ref));
+        currentBatch.forEach((doc: any) => batch.delete(doc.ref));
         await batch.commit();
       }
       console.log(`[Upload API] Successfully cleared ${deleteDocs.length} existing chunks.`);
