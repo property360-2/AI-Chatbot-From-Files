@@ -1,52 +1,82 @@
-const pdf = require('pdf-parse');
+/**
+ * PDF Utility - lib/pdf.ts
+ * Handles PDF text extraction and text chunking for the BM25 search pipeline.
+ *
+ * Uses the pdf-parse@2.4.5 class-based API (PDFParse). The buffer is passed
+ * directly to the constructor as the `data` option, which avoids any file-system
+ * access and is safe in Vercel's serverless environment.
+ *
+ * API reference (pdf-parse v2):
+ *   const p = new PDFParse({ data: buffer, verbosity: VerbosityLevel.ERRORS });
+ *   await p.load();
+ *   const pages = await p.getText();  // returns Array<{ page, text }>
+ */
 
 /**
  * Extract text content from a PDF buffer.
- * @param buffer - The PDF file buffer.
- * @returns Cleaned text content from the PDF.
+ *
+ * @param buffer - The raw PDF file as a Node.js Buffer
+ * @returns The extracted plain text content from the PDF
+ * @throws Error if pdf-parse fails to load or extract text
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
-    // This modern fork (v2.4.5) uses a class-based API
-    const { PDFParse } = require('pdf-parse');
-    
-    if (!PDFParse) {
-      throw new Error("Could not find PDFParse class in pdf-parse module.");
-    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PDFParse, VerbosityLevel } = require('pdf-parse');
 
-    // Initialize the parser with the buffer data
-    // We disable worker fetch and reduce verbosity to avoid Node.js environment issues
-    const parser = new PDFParse({ 
+    // NOTE: The `data` field is accepted in the constructor and auto-converts
+    // a Node.js Buffer to Uint8Array internally. Do NOT pass a path or url.
+    const parser = new PDFParse({
       data: buffer,
-      verbosity: 0,
-      useWorkerFetch: false
+      verbosity: VerbosityLevel.ERRORS,
     });
-    
-    // Extract text using the getText() method
-    const result = await parser.getText();
-    
-    return result.text.replace(/\s+/g, ' ').trim();
+
+    // load() parses the PDF bytes into the internal document representation
+    await parser.load();
+
+    // getText() returns an array of { page: number, text: string } objects
+    const pages: Array<{ page: number; text: string }> = await parser.getText();
+
+    // Concatenate all page texts and normalize whitespace
+    const fullText = pages
+      .map((p: { page: number; text: string }) => p.text)
+      .join('\n')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return fullText;
   } catch (error: any) {
-    console.error("[PDF Error] Error parsing PDF:", error.message);
-    throw new Error(`Failed to parse PDF document: ${error.message}`);
+    console.error('[PDF Error] Failed to extract text:', error.message);
+    throw new Error(`PDF extraction failed: ${error.message}`);
   }
 }
 
 /**
- * Split large text into smaller chunks for better processing by LLMs.
- * @param text - The full text to split.
- * @param chunkSize - Maximum characters per chunk.
- * @param overlap - Number of characters to overlap between chunks.
- * @returns Array of text chunks.
+ * Split large text into smaller overlapping chunks for BM25 search.
+ *
+ * @param text - The full document text to split
+ * @param chunkSize - Maximum number of characters per chunk (default: 800)
+ * @param overlap - Number of characters to overlap between consecutive chunks (default: 150)
+ * @returns Array of text chunk strings
  */
-export function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200): string[] {
+export function chunkText(
+  text: string,
+  chunkSize: number = 800,
+  overlap: number = 150,
+): string[] {
   const chunks: string[] = [];
   let startIndex = 0;
 
   while (startIndex < text.length) {
     const endIndex = Math.min(startIndex + chunkSize, text.length);
-    chunks.push(text.substring(startIndex, endIndex));
-    startIndex += (chunkSize - overlap);
+    const chunk = text.substring(startIndex, endIndex).trim();
+
+    // Only add non-empty chunks
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
+
+    startIndex += chunkSize - overlap;
   }
 
   return chunks;
