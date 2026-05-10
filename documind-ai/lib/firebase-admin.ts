@@ -23,13 +23,25 @@ if (!admin.apps.length) {
     if (!serviceAccount && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
       console.log('[Firebase Admin] Initializing with individual environment variables');
       
-      // Robust PEM reconstruction for Vercel/Node
-      // This handles true newlines, escaped \n, and accidental quotes
       const rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
-      const fixedKey = rawKey
-        .replace(/"/g, '') // Remove accidental quotes
-        .replace(/\\n/g, '\n') // Convert literal \n to real newlines
+
+      // Step 1: Strip any wrapping quotes
+      let fixedKey = rawKey.replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+
+      // Step 2: Normalize all newline representations to a real \n character
+      // This handles: literal \n strings, \\n double-escaped, and \r\n
+      fixedKey = fixedKey
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\r\n/g, '\n')
         .trim();
+
+      // Step 3: Validate PEM structure is intact
+      if (!fixedKey.includes('-----BEGIN PRIVATE KEY-----') || !fixedKey.includes('-----END PRIVATE KEY-----')) {
+        console.error('[Firebase Admin] PEM structure is invalid after parsing. Check FIREBASE_PRIVATE_KEY format.');
+      } else {
+        console.log('[Firebase Admin] PEM key structure looks valid.');
+      }
 
       serviceAccount = {
         projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
