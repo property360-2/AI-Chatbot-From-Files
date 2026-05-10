@@ -25,7 +25,14 @@ export async function* performStreamingRAG(
   userId: string,
   history: { role: string; content: string }[] = []
 ) {
+  // 0. IMMEDIATE YIELD: Send an invisible character to keep the Vercel connection alive.
+  // This prevents the 10s/30s timeout while we fetch data from Firestore.
+  yield ""; 
+
   try {
+    console.log(`[RAG] Starting processing for user: ${userId}`);
+    const startTime = Date.now();
+
     // 1. Fetch user's document chunks from Firestore
     const chunksSnapshot = await adminDb
       .collection('users')
@@ -33,7 +40,7 @@ export async function* performStreamingRAG(
       .collection('chunks')
       .get();
 
-    if (chunksSnapshot.empty) {
+    console.log(`[RAG] Firestore fetch took ${Date.now() - startTime}ms. Chunks found: ${chunksSnapshot.size}`);
       yield "I don't see any uploaded documents yet. Upload a file first and I'll be able to answer your questions!";
       return;
     }
