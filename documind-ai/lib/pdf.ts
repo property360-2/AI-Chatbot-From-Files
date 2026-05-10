@@ -2,14 +2,8 @@
  * PDF Utility - lib/pdf.ts
  * Handles PDF text extraction and text chunking for the BM25 search pipeline.
  *
- * Uses the pdf-parse@2.4.5 class-based API (PDFParse). The buffer is passed
- * directly to the constructor as the `data` option, which avoids any file-system
- * access and is safe in Vercel's serverless environment.
- *
- * API reference (pdf-parse v2):
- *   const p = new PDFParse({ data: buffer, verbosity: VerbosityLevel.ERRORS });
- *   await p.load();
- *   const pages = await p.getText();  // returns Array<{ page, text }>
+ * This version uses pdf-parse@1.1.1 which is the stable, pure-JS version.
+ * It avoids the browser dependencies (like DOMMatrix) found in 2.x.
  */
 
 /**
@@ -17,32 +11,19 @@
  *
  * @param buffer - The raw PDF file as a Node.js Buffer
  * @returns The extracted plain text content from the PDF
- * @throws Error if pdf-parse fails to load or extract text
+ * @throws Error if pdf-parse fails to extract text
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
+    // We import the library. In 1.1.1, the main export is the parsing function.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { PDFParse, VerbosityLevel } = require('pdf-parse');
+    const pdf = require('pdf-parse');
 
-    // NOTE: The `data` field is accepted in the constructor and auto-converts
-    // a Node.js Buffer to Uint8Array internally. Do NOT pass a path or url.
-    const parser = new PDFParse({
-      data: buffer,
-      verbosity: VerbosityLevel.ERRORS,
-    });
+    // pdf() returns a Promise that resolves to an object with a 'text' property.
+    // We pass the buffer directly.
+    const data = await pdf(buffer);
 
-    // load() parses the PDF bytes into the internal document representation
-    await parser.load();
-
-    // getText() returns an object: { pages: Array, text: string, total: number }
-    const result = await parser.getText();
-
-    // Use the combined text property directly and normalize whitespace
-    const fullText = result.text
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    return fullText;
+    return data.text.replace(/\s+/g, ' ').trim();
   } catch (error: any) {
     console.error('[PDF Error] Failed to extract text:', error.message);
     throw new Error(`PDF extraction failed: ${error.message}`);
