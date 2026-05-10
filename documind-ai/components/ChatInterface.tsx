@@ -16,13 +16,24 @@ import {
   X,
   Upload,
   Loader2,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Copy,
+  Check,
+  MessageSquareText,
+  Link as LinkIcon,
+  Bell,
+  AlertCircle,
+  CheckCircle2,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import {
@@ -78,6 +89,19 @@ export default function ChatInterface() {
   const libraryTimer = useRef<NodeJS.Timeout | null>(null);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [feedbackData, setFeedbackData] = useState({ email: user?.email || '', link: '', message: '' });
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [toasts, setToasts] = useState<{ id: string; type: 'success' | 'error' | 'info'; title: string; message: string }[]>([]);
+
+  const addToast = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
 
   // Responsive Sidebar Listener
   useEffect(() => {
@@ -159,19 +183,27 @@ export default function ChatInterface() {
       setMessages([]);
     }
 
-    // 3. Sync Uploaded Files Metadata
-    const filesQuery = query(collection(db, 'users', user.uid, 'files'));
-    const unsubscribeFiles = onSnapshot(filesQuery, (snapshot) => {
-      const files = snapshot.docs.map(doc => doc.data() as { name: string; size: string });
-      setUploadedFiles(files);
-    });
-
     return () => {
       unsubscribeConvs();
       unsubscribeMessages();
-      unsubscribeFiles();
     };
   }, [user, currentConvId]);
+
+  // 3. Sync Uploaded Files Metadata (Independent of conversation)
+  useEffect(() => {
+    if (!user || !db) return;
+
+    const filesQuery = query(collection(db, 'users', user.uid, 'files'), orderBy('uploadedAt', 'desc'));
+    const unsubscribeFiles = onSnapshot(filesQuery, (snapshot) => {
+      const files = snapshot.docs.map(doc => doc.data() as { name: string; size: string });
+      console.log(`[Sync] Found ${files.length} documents in library`);
+      setUploadedFiles(files);
+    }, (error) => {
+      console.error("[Sync Error] Failed to fetch document library:", error);
+    });
+
+    return () => unsubscribeFiles();
+  }, [user]);
 
   const toggleTheme = () => {
     const newTheme = !isDarkMode;
@@ -219,22 +251,62 @@ export default function ChatInterface() {
         if (user) {
           await deleteDoc(doc(db, 'users', user.uid, 'files', fileName));
         }
-        const assistantMessage: Message = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `Document deleted successfully. The context has been updated.`,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
+        addToast('success', 'Document Deleted', `"${fileName}" has been removed from your library.`);
       }
     } catch (error) {
       console.error('Delete failed:', error);
+      addToast('error', 'Delete Failed', 'Could not delete the document.');
     }
   };
 
   const startNewChat = () => {
     setCurrentConvId(null);
     setMessages([]);
+  };
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    addToast('success', 'Copied', 'Message content copied to clipboard.');
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Auto-populate feedback data when modal opens
+  useEffect(() => {
+    if (isFeedbackOpen && user && typeof window !== 'undefined') {
+      setFeedbackData(prev => ({
+        ...prev,
+        email: user.email || '',
+        link: window.location.href
+      }));
+    }
+  }, [isFeedbackOpen, user]);
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackData.message.trim() || !user) return;
+
+    setIsSubmittingFeedback(true);
+    try {
+      await addDoc(collection(db, 'feedback'), {
+        userId: user.uid,
+        email: feedbackData.email,
+        link: feedbackData.link,
+        feedback: feedbackData.message,
+        createdAt: new Date().toISOString(),
+        status: 'new'
+      });
+      
+      setIsFeedbackOpen(false);
+      setFeedbackData({ email: user.email || '', link: '', message: '' });
+      
+      addToast('success', 'Feedback Received', 'Thank you! Your input helps us improve TropangAI.');
+    } catch (error) {
+      console.error('[Feedback Error]', error);
+      addToast('error', 'Submission Failed', 'Could not send feedback. Please try again.');
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
   };
 
   const deleteConversation = (convId: string, e: React.MouseEvent) => {
@@ -245,7 +317,6 @@ export default function ChatInterface() {
   const confirmDeleteConversation = async () => {
     if (!user || !convToDelete) return;
     const convId = convToDelete;
-    setConvToDelete(null);
 
     try {
       // 1. Delete all messages first
@@ -256,24 +327,17 @@ export default function ChatInterface() {
 
       // 2. Delete conversation document
       await deleteDoc(doc(db, 'users', user.uid, 'conversations', convId));
-
       if (currentConvId === convId) {
-        startNewChat();
+        setCurrentConvId(null);
+        setMessages([]);
       }
+      addToast('info', 'Thread Deleted', 'The conversation has been permanently removed.');
     } catch (error) {
-      console.error('Delete conversation failed:', error);
+      console.error('[Delete Error]', error);
+      addToast('error', 'Delete Failed', 'Could not remove the conversation.');
     }
+    setConvToDelete(null);
   };
-
-  const handleLibraryHover = (open: boolean) => {
-    if (libraryTimer.current) clearTimeout(libraryTimer.current);
-    if (open) {
-      setIsLibraryOpen(true);
-    } else {
-      libraryTimer.current = setTimeout(() => setIsLibraryOpen(false), 300);
-    }
-  };
-
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,16 +479,11 @@ export default function ChatInterface() {
       });
 
       setUploadProgress(100);
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `Successfully processed "${file.name}". I've indexed the document for search. What would you like to know?`,
-        timestamp: new Date(),
-      }]);
+      addToast('success', 'Document Ready', `"${file.name}" has been indexed and is ready for analysis.`);
 
     } catch (error: any) {
       console.error('[Upload Error]', error);
-      alert(`Processing failed: ${error.message}`);
+      addToast('error', 'Upload Failed', error.message || 'Could not process document.');
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -437,6 +496,12 @@ export default function ChatInterface() {
     if (!files || files.length === 0) return;
 
     const file = files[0];
+
+    // Limit check: 4MB (Vercel payload limit is 4.5MB)
+    if (file.size > 4 * 1024 * 1024) {
+      addToast('error', 'File Too Large', 'Maximum file size is 4MB for stability on Vercel.');
+      return;
+    }
 
     // Check for duplicates
     if (uploadedFiles.some(f => f.name === file.name)) {
@@ -581,6 +646,13 @@ export default function ChatInterface() {
                 <FileText size={16} />
               </Link>
             </div>
+            <button
+              onClick={() => setIsFeedbackOpen(true)}
+              className="w-full mt-2 flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-accent/10 text-secondary hover:text-accent transition-all text-[10px] font-bold uppercase tracking-widest border border-border/30 group"
+            >
+              <MessageSquareText size={14} className="group-hover:scale-110 transition-transform" />
+              <span>Share Feedback</span>
+            </button>
           </div>
         </div>
       </motion.aside>
@@ -746,7 +818,7 @@ export default function ChatInterface() {
                       {message.role === 'user' ? 'You' : 'TropangAI'}
                     </span>
                     <span className="text-[10px] text-secondary/40 font-medium ml-auto">
-                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
 
@@ -756,7 +828,8 @@ export default function ChatInterface() {
                   )}>
                     {message.role === 'assistant' ? (
                       <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
                         components={{
                           h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mt-8 mb-4 tracking-tight text-foreground" {...props} />,
                           h2: ({ node, ...props }) => <h2 className="text-xl font-bold mt-6 mb-3 tracking-tight text-foreground" {...props} />,
@@ -767,6 +840,15 @@ export default function ChatInterface() {
                           strong: ({ node, ...props }) => <strong className="font-bold text-foreground" {...props} />,
                           code: ({ node, ...props }) => <code className="bg-border/30 rounded px-1.5 py-0.5 font-mono text-[13px] text-accent" {...props} />,
                           blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-accent/30 pl-4 py-1 my-4 italic text-secondary" {...props} />,
+                          table: ({ node, ...props }) => (
+                            <div className="my-6 w-full overflow-x-auto rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm shadow-sm custom-scrollbar">
+                              <table className="w-full text-left border-collapse" {...props} />
+                            </div>
+                          ),
+                          thead: ({ node, ...props }) => <thead className="bg-accent/5 border-b border-border/50 text-accent font-bold" {...props} />,
+                          th: ({ node, ...props }) => <th className="px-4 py-3 text-[11px] uppercase tracking-widest" {...props} />,
+                          td: ({ node, ...props }) => <td className="px-4 py-3 text-[13px] border-b border-border/30 last:border-0" {...props} />,
+                          tr: ({ node, ...props }) => <tr className="hover:bg-accent/5 transition-colors odd:bg-accent/2" {...props} />,
                         }}
                       >
                         {message.content}
@@ -774,6 +856,26 @@ export default function ChatInterface() {
                     ) : (
                       <div className="whitespace-pre-wrap">{message.content}</div>
                     )}
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border/10">
+                    <button
+                      onClick={() => handleCopy(message.content, message.id)}
+                      className="p-1.5 rounded-lg hover:bg-accent/5 text-secondary/40 hover:text-accent transition-all flex items-center gap-2 group/copy"
+                      title="Copy Message"
+                    >
+                      {copiedId === message.id ? (
+                        <>
+                          <Check size={12} className="text-green-500" />
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-green-500">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={12} className="group-hover/copy:scale-110 transition-transform" />
+                          <span className="text-[9px] font-bold uppercase tracking-widest opacity-0 group-hover/copy:opacity-100 transition-opacity">Copy</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </motion.div>
               ))}
@@ -793,82 +895,103 @@ export default function ChatInterface() {
                 onSubmit={handleSendMessage}
                 className="flex items-center bg-card border border-border/50 focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all group rounded-2xl shadow-lg backdrop-blur-md relative"
               >
-                {/* Upload Button */}
-                <div 
-                  className="relative h-full border-r border-border/30 hover:bg-accent/5 transition-colors"
-                  onMouseEnter={() => handleLibraryHover(true)}
-                  onMouseLeave={() => handleLibraryHover(false)}
-                >
-                  <label 
-                    className="h-full px-4 md:px-5 flex items-center justify-center cursor-pointer hover:text-accent transition-colors relative min-h-[56px] md:min-h-[60px] focus-within:ring-2 focus-within:ring-accent/50 rounded-l-2xl"
-                    aria-label="Upload PDF Document"
+                {/* Upload & Library Menu */}
+                <div className="relative h-full border-r border-border/30">
+                  <button
+                    type="button"
+                    onClick={() => setIsLibraryOpen(!isLibraryOpen)}
+                    className="h-full px-4 md:px-5 flex items-center justify-center hover:text-accent transition-colors relative min-h-[56px] md:min-h-[60px] focus:outline-none hover:bg-accent/5 rounded-l-2xl"
+                    aria-label="Open Document Library"
                   >
                     <div className="relative p-1">
-                      <Plus size={20} className={cn("transition-transform", isLibraryOpen ? "rotate-45 scale-110 text-accent" : "")} />
+                      <Plus size={20} className={cn("transition-transform duration-300", isLibraryOpen ? "rotate-45 scale-110 text-accent" : "")} />
                       {uploadedFiles.length > 0 && (
                         <div className="absolute top-[-2px] right-[-4px] w-4 h-4 bg-accent rounded-full flex items-center justify-center text-[8px] font-bold text-white border-2 border-card shadow-sm transition-all duration-300">
                           {uploadedFiles.length}
                         </div>
                       )}
                     </div>
-                    <input
-                      type="file"
-                      className="sr-only"
-                      accept=".pdf"
-                      onChange={handleFileUpload}
-                      disabled={isUploading}
-                      aria-label="Upload PDF File"
-                    />
-                  </label>
+                  </button>
 
                   {/* Context Menu for Documents */}
                   <AnimatePresence>
                     {isLibraryOpen && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        className="absolute bottom-full left-0 mb-4 w-80 bg-card/95 backdrop-blur-xl border border-border p-0 z-50 rounded-2xl shadow-2xl overflow-hidden"
-                      >
-                        <div className="text-[10px] font-bold uppercase text-accent bg-accent/5 px-4 py-3 tracking-widest border-b border-border flex justify-between items-center">
-                          <span>Document Library</span>
-                          <span className="bg-accent/10 px-2 py-0.5 rounded-full text-[9px]">{uploadedFiles.length} files</span>
-                        </div>
-                        <div className="max-h-72 overflow-y-auto custom-scrollbar">
-                          {uploadedFiles.length === 0 ? (
-                            <div className="py-12 flex flex-col items-center justify-center text-center px-6">
-                              <Upload size={24} className="text-secondary/20 mb-3" />
-                              <p className="text-xs text-secondary font-medium">No documents uploaded yet.</p>
+                      <>
+                        {/* Backdrop to close on click outside */}
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsLibraryOpen(false)} 
+                        />
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute bottom-full left-0 mb-4 w-80 bg-card/95 backdrop-blur-xl border border-border p-0 z-50 rounded-2xl shadow-2xl overflow-hidden"
+                        >
+                          <div className="text-[10px] font-bold uppercase text-accent bg-accent/5 px-4 py-3 tracking-widest border-b border-border flex justify-between items-center">
+                            <span>Document Library</span>
+                            <span className="bg-accent/10 px-2 py-0.5 rounded-full text-[9px]">{uploadedFiles.length} files</span>
+                          </div>
+
+                          {/* Add Document Button INSIDE the menu */}
+                          <label className="flex items-center gap-3 px-4 py-4 hover:bg-accent/10 cursor-pointer border-b border-border/50 text-accent group transition-colors">
+                            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 transition-colors">
+                              <Upload size={14} />
                             </div>
-                          ) : (
-                            <div className="divide-y divide-border/30">
-                              {uploadedFiles.map((file, i) => (
-                                <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-accent/5 transition-colors group/item">
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div className="p-2 bg-accent/5 rounded-lg text-accent">
-                                      <FileText size={14} />
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-bold uppercase tracking-[0.15em]">Add New Document</span>
+                              <span className="text-[8px] text-red-500/80 font-bold uppercase tracking-widest mt-1 animate-pulse">Max 4MB per file</span>
+                            </div>
+                            <input
+                              type="file"
+                              className="sr-only"
+                              accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.xls"
+                              onChange={(e) => {
+                                handleFileUpload(e);
+                                setIsLibraryOpen(false);
+                              }}
+                              disabled={isUploading}
+                            />
+                          </label>
+
+                          <div className="max-h-72 overflow-y-auto custom-scrollbar">
+                            {uploadedFiles.length === 0 ? (
+                              <div className="py-12 flex flex-col items-center justify-center text-center px-6">
+                                <FileText size={24} className="text-secondary/20 mb-3" />
+                                <p className="text-[10px] text-secondary/40 font-bold uppercase tracking-widest leading-relaxed">
+                                  No documents yet.<br />Add one above.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="divide-y divide-border/30">
+                                {uploadedFiles.map((file, i) => (
+                                  <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-accent/5 transition-colors group/item">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className="p-2 bg-accent/5 rounded-lg text-accent">
+                                        <FileText size={14} />
+                                      </div>
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="text-xs font-semibold truncate text-foreground/90">{file.name}</span>
+                                        <span className="text-[10px] text-secondary font-medium">{file.size}</span>
+                                      </div>
                                     </div>
-                                    <div className="flex flex-col min-w-0">
-                                      <span className="text-xs font-semibold truncate text-foreground/90">{file.name}</span>
-                                      <span className="text-[10px] text-secondary font-medium">{file.size}</span>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteDocument(file.name);
+                                      }}
+                                      className="text-secondary/30 hover:text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-all"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      deleteDocument(file.name);
-                                    }}
-                                    className="text-secondary/30 hover:text-red-500 hover:bg-red-500/10 p-2 rounded-lg transition-all"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      </>
                     )}
                   </AnimatePresence>
                 </div>
@@ -891,10 +1014,117 @@ export default function ChatInterface() {
                   {isLoading ? <Loader2 size={18} className="animate-spin text-accent" /> : <Send size={18} />}
                 </button>
               </form>
+              <p className="mt-3 text-center text-[9px] text-secondary/30 font-bold uppercase tracking-[0.2em]">
+                TropangAI can make mistakes. Check important info.
+              </p>
             </div>
           </div>
         </main>
       </div>
+
+      {/* Feedback Modal */}
+      <AnimatePresence>
+        {isFeedbackOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isSubmittingFeedback && setIsFeedbackOpen(false)}
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-card border border-border shadow-2xl rounded-3xl overflow-hidden"
+            >
+              <div className="bg-accent/5 px-6 py-6 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-accent/10 rounded-2xl text-accent">
+                    <MessageSquareText size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold tracking-tight">Share Your Feedback</h3>
+                    <p className="text-[10px] text-secondary font-medium uppercase tracking-widest mt-0.5">Help us improve TropangAI</p>
+                  </div>
+                </div>
+              </div>
+
+              <form onSubmit={handleFeedbackSubmit} className="p-6 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-secondary ml-1">Email Address</label>
+                  <div className="relative group">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary/40 group-focus-within:text-accent transition-colors">
+                      <Send size={14} />
+                    </div>
+                    <input
+                      type="email"
+                      value={feedbackData.email}
+                      readOnly
+                      className="w-full bg-accent/5 px-10 py-3 rounded-xl border border-border/30 outline-none transition-all text-xs text-secondary/60 cursor-not-allowed"
+                      placeholder="your@email.com"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-secondary ml-1">Reference Link (Automatic)</label>
+                  <div className="relative group">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary/40">
+                      <LinkIcon size={14} />
+                    </div>
+                    <input
+                      type="url"
+                      value={feedbackData.link}
+                      readOnly
+                      className="w-full bg-accent/5 px-10 py-3 rounded-xl border border-border/30 outline-none transition-all text-xs text-secondary/60 cursor-not-allowed"
+                      placeholder="https://..."
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-secondary ml-1">Your Message</label>
+                  <textarea
+                    value={feedbackData.message}
+                    onChange={(e) => setFeedbackData({ ...feedbackData, message: e.target.value })}
+                    required
+                    rows={4}
+                    className="w-full bg-accent/2 px-4 py-3 rounded-xl border border-border/50 focus:border-accent/50 focus:ring-4 focus:ring-accent/5 outline-none transition-all text-xs resize-none"
+                    placeholder="Tell us what's on your mind..."
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsFeedbackOpen(false)}
+                    disabled={isSubmittingFeedback}
+                    className="flex-1 px-4 py-3 rounded-xl border border-border font-bold text-[11px] uppercase tracking-widest hover:bg-accent/5 transition-all disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingFeedback || !feedbackData.message.trim()}
+                    className="flex-[2] px-4 py-3 rounded-xl bg-accent text-white font-bold text-[11px] uppercase tracking-widest hover:bg-accent/90 shadow-lg shadow-accent/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSubmittingFeedback ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <>
+                        <Send size={14} />
+                        <span>Submit Feedback</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modern Delete Confirmation Modal */}
       <AnimatePresence>
@@ -986,6 +1216,48 @@ export default function ChatInterface() {
         )}
       </AnimatePresence>
 
+      {/* Toast Notifications */}
+      <div className="fixed top-6 right-6 z-[200] flex flex-col gap-3 pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
+              className="pointer-events-auto"
+            >
+              <div className={cn(
+                "w-80 p-4 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-start gap-4 transition-all",
+                toast.type === 'success' && "bg-green-500/5 border-green-500/20 text-green-500",
+                toast.type === 'error' && "bg-red-500/5 border-red-500/20 text-red-500",
+                toast.type === 'info' && "bg-accent/5 border-accent/20 text-accent"
+              )}>
+                <div className={cn(
+                  "p-2 rounded-xl shrink-0",
+                  toast.type === 'success' && "bg-green-500/10",
+                  toast.type === 'error' && "bg-red-500/10",
+                  toast.type === 'info' && "bg-accent/10"
+                )}>
+                  {toast.type === 'success' && <CheckCircle2 size={18} />}
+                  {toast.type === 'error' && <AlertCircle size={18} />}
+                  {toast.type === 'info' && <Bell size={18} />}
+                </div>
+                <div className="flex flex-col gap-1 min-w-0">
+                  <span className="text-[11px] font-bold uppercase tracking-widest">{toast.title}</span>
+                  <p className="text-xs text-foreground/70 leading-relaxed truncate-2-lines">{toast.message}</p>
+                </div>
+                <button 
+                  onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                  className="ml-auto p-1 hover:bg-foreground/5 rounded-lg transition-colors text-foreground/20 hover:text-foreground/40"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {

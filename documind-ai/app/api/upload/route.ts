@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTextFromPDF, chunkText } from '@/lib/pdf';
+import { extractTextFromFile, chunkText } from '@/lib/document';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
 
 // Vercel-specific config for extended duration (if Fluid Compute is enabled)
@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    console.log('[Upload API] Step 1: Extracting text from PDF...');
-    const text = await extractTextFromPDF(buffer);
+    console.log(`[Upload API] Step 1: Extracting text from ${file.name}...`);
+    const text = await extractTextFromFile(buffer, file.name);
     console.log(`[Upload API] Step 1 complete. Text length: ${text.length}`);
     
     console.log('[Upload API] Step 2: Chunking text...');

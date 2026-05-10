@@ -15,14 +15,19 @@
     "firebase": "^12.13.0",
     "firebase-admin": "^13.9.0",
     "framer-motion": "^12.38.0",
+    "katex": "^0.16.11",
     "lucide-react": "^1.14.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.6",
     "pdf-parse": "1.1.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.5.0"
+    "remark-math": "^6.0.0",
+    "tailwind-merge": "^3.5.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
