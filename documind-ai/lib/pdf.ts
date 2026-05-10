@@ -34,13 +34,11 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     // load() parses the PDF bytes into the internal document representation
     await parser.load();
 
-    // getText() returns an array of { page: number, text: string } objects
-    const pages: Array<{ page: number; text: string }> = await parser.getText();
+    // getText() returns an object: { pages: Array, text: string, total: number }
+    const result = await parser.getText();
 
-    // Concatenate all page texts and normalize whitespace
-    const fullText = pages
-      .map((p: { page: number; text: string }) => p.text)
-      .join('\n')
+    // Use the combined text property directly and normalize whitespace
+    const fullText = result.text
       .replace(/\s+/g, ' ')
       .trim();
 
