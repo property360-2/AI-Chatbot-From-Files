@@ -465,7 +465,7 @@ export default function ChatInterface() {
 
   return (
     <div className={cn(
-      "flex h-screen bg-background text-foreground transition-colors duration-300 overflow-hidden",
+      "flex h-screen h-[100dvh] bg-background text-foreground transition-colors duration-300 overflow-hidden",
       isDarkMode ? "dark" : ""
     )}>
       {/* Sidebar Backdrop for Mobile */}
@@ -712,11 +712,11 @@ export default function ChatInterface() {
             className="flex-1 overflow-y-auto px-4 md:px-6 py-10 space-y-12 scroll-smooth custom-scrollbar"
           >
             {messages.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 px-4">
+              <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 px-4 py-12 md:py-20">
                 <h2 className="text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold tracking-tight text-accent transition-all">
                   What's on your mind?
                 </h2>
-                <p className="text-xs md:text-sm lg:text-base text-secondary max-w-xs md:max-w-md transition-all">
+                <p className="text-[10px] md:text-sm lg:text-base text-secondary max-w-[240px] md:max-w-md transition-all uppercase tracking-[0.1em] font-medium">
                   Upload your documents and let's start exploring the information together.
                 </p>
               </div>
@@ -787,7 +787,7 @@ export default function ChatInterface() {
           </div>
 
           {/* Floating Input Area */}
-          <div className="px-4 md:px-6 py-6 md:py-8">
+          <div className="px-4 md:px-6 py-4 md:py-8">
             <div className="relative max-w-3xl mx-auto">
               <form
                 onSubmit={handleSendMessage}
