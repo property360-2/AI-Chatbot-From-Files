@@ -41,6 +41,8 @@ export async function* performStreamingRAG(
       .get();
 
     console.log(`[RAG] Firestore fetch took ${Date.now() - startTime}ms. Chunks found: ${chunksSnapshot.size}`);
+    
+    if (chunksSnapshot.empty) {
       yield "I don't see any uploaded documents yet. Upload a file first and I'll be able to answer your questions!";
       return;
     }
