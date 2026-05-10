@@ -380,17 +380,17 @@ export default function ChatInterface() {
     if (!user) return;
     
     setIsUploading(true);
-    setUploadProgress(0);
-    setUploadStatus('Uploading and parsing PDF...');
+    setUploadProgress(10);
+    setUploadStatus('Uploading and analyzing PDF...');
     
     try {
       const idToken = await user.getIdToken();
       
-      // Phase 1: Upload and get chunks
       const formData = new FormData();
       formData.append('file', file);
       formData.append('userId', user.uid);
 
+      setUploadProgress(30);
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${idToken}` },
@@ -402,43 +402,9 @@ export default function ChatInterface() {
         throw new Error(errorData.details || errorData.error || 'Upload failed');
       }
 
-      const { chunks, document: docMetadata } = await uploadResponse.json();
-      const totalChunks = chunks.length;
+      setUploadProgress(90);
+      const { document: docMetadata } = await uploadResponse.json();
       
-      setUploadStatus(`Generating embeddings for ${totalChunks} chunks...`);
-
-      // Phase 2: Process chunks in small batches
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
-        const currentBatch = chunks.slice(i, i + BATCH_SIZE);
-        const isLastBatch = (i + BATCH_SIZE) >= totalChunks;
-        
-        const batchResponse = await fetch('/api/process-batch', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({
-            userId: user.uid,
-            fileName: file.name,
-            chunks: currentBatch,
-            startIndex: i,
-            isLastBatch
-          }),
-        });
-
-        if (!batchResponse.ok) {
-          const errorData = await batchResponse.json();
-          throw new Error(`Batch processing failed: ${errorData.error}`);
-        }
-
-        // Update progress
-        const progressed = Math.min(Math.round(((i + currentBatch.length) / totalChunks) * 100), 100);
-        setUploadProgress(progressed);
-        setUploadStatus(`Analyzing context: ${progressed}%`);
-      }
-
       setUploadedFiles(prev => {
         const exists = prev.some(f => f.name === docMetadata.name);
         if (exists) return prev;
@@ -448,10 +414,11 @@ export default function ChatInterface() {
         }];
       });
 
+      setUploadProgress(100);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `Successfully processed "${file.name}". I've analyzed all ${totalChunks} parts of the document. What would you like to know?`,
+        content: `Successfully processed "${file.name}". I've indexed the document for search. What would you like to know?`,
         timestamp: new Date(),
       }]);
 

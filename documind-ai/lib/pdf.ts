@@ -1,4 +1,3 @@
-import './polyfill';
 const pdf = require('pdf-parse');
 
 /**

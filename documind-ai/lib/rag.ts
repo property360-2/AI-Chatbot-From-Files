@@ -1,13 +1,13 @@
-import { groq, getFailoverStream } from './groq';
-import { generateEmbeddings, cosineSimilarity } from './embeddings';
+import { getFailoverStream } from './groq';
+import { rankChunksBM25 } from './bm25';
 import { adminDb } from './firebase-admin';
 
 /**
- * Streaming RAG Logic - Fetches chunks from Firestore
+ * Streaming RAG Logic - Fetches chunks from Firestore and ranks them using BM25
  */
 export async function* performStreamingRAG(query: string, userId: string, history: { role: string, content: string }[] = []) {
   try {
-    // Fetch user's chunks from Firestore
+    // 1. Fetch user's chunks from Firestore (Text content only)
     const chunksSnapshot = await adminDb
       .collection('users')
       .doc(userId)
@@ -20,18 +20,17 @@ export async function* performStreamingRAG(query: string, userId: string, histor
     }
 
     const chunks = chunksSnapshot.docs.map((doc: any) => doc.data());
-    const queryEmbedding = await generateEmbeddings(query);
 
-    const similarities = chunks.map((chunk: any) => ({
-      ...chunk,
-      similarity: cosineSimilarity(queryEmbedding, chunk.embedding)
-    }));
+    // 2. Rank chunks using BM25 keyword scoring (Vercel-safe, zero-API)
+    const topChunks = rankChunksBM25(query, chunks, 5);
 
-    const topChunks = similarities
-      .sort((a: any, b: any) => b.similarity - a.similarity)
-      .slice(0, 5);
+    if (topChunks.length === 0) {
+      yield "I found your documents, but couldn't find any specific sections related to your question. Try rephrasing?";
+      return;
+    }
 
-    const context = topChunks.map((c: any) => `[Source: ${c.metadata.source}]\n${c.content}`).join('\n\n---\n\n');
+    // 3. Build context and prompt
+    const context = topChunks.map((c: any) => `[Source: ${c.metadata?.source || 'Unknown'}]\n${c.content}`).join('\n\n---\n\n');
     const formattedHistory = history.map(h => `${h.role.toUpperCase()}: ${h.content}`).join('\n');
 
     const prompt = `
@@ -56,8 +55,9 @@ export async function* performStreamingRAG(query: string, userId: string, histor
       AI RESPONSE:
     `;
 
+    // 4. Stream response from Groq
     const failoverStream = getFailoverStream([
-      { role: 'system', content: 'You are TropangAI, a minimalist AI assistant.' },
+      { role: 'system', content: 'You are TropangAI, a helpful document assistant.' },
       { role: 'user', content: prompt }
     ]);
     

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { performStreamingRAG } from '@/lib/rag';
 import { adminAuth } from '@/lib/firebase-admin';
 
+// Vercel-specific config for extended duration (if Fluid Compute is enabled)
+export const maxDuration = 30;
+
 /**
  * POST /api/chat
  * Handles user chat questions and returns AI-generated responses using streaming RAG.

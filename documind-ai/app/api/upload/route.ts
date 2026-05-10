@@ -1,8 +1,9 @@
-import '@/lib/polyfill';
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromPDF, chunkText } from '@/lib/pdf';
-import { generateEmbeddings } from '@/lib/embeddings';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
+
+// Vercel-specific config for extended duration (if Fluid Compute is enabled)
+export const maxDuration = 60;
 
 /**
  * POST /api/upload
@@ -44,10 +45,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File and User ID are required' }, { status: 400 });
     }
 
+    // 1. Extract text and chunk it
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Extract text and chunk it
     console.log('[Upload API] Step 1: Extracting text from PDF...');
     const text = await extractTextFromPDF(buffer);
     console.log(`[Upload API] Step 1 complete. Text length: ${text.length}`);
@@ -61,40 +62,66 @@ export async function POST(request: NextRequest) {
     }
 
     const chunksRef = adminDb.collection('users').doc(userId).collection('chunks');
-    
-    // Clear existing chunks for this file to avoid duplicates (Batched to avoid "Transaction too big")
-    console.log(`[Upload API] Checking for existing chunks to clear for: ${file.name}`);
+    const filesRef = adminDb.collection('users').doc(userId).collection('files').doc(file.name);
+
+    // 2. Clear existing chunks for this file
+    console.log(`[Upload API] Step 3: Clearing existing chunks for: ${file.name}`);
     const existingChunksQuery = await chunksRef.where('metadata.source', '==', file.name).get();
     
     if (!existingChunksQuery.empty) {
-      const docs = existingChunksQuery.docs;
-      console.log(`[Upload API] Clearing ${docs.length} existing chunks individually...`);
-      
-      // Delete in parallel to be faster than sequential but avoid batch limits
-      await Promise.all(docs.map((d: any) => d.ref.delete()));
-      console.log(`[Upload API] Successfully cleared all ${docs.length} chunks.`);
+      const deleteDocs = existingChunksQuery.docs;
+      // Delete in small batches to avoid timeout/batch limits
+      const batchSize = 100;
+      for (let i = 0; i < deleteDocs.length; i += batchSize) {
+        const batch = adminDb.batch();
+        const currentBatch = deleteDocs.slice(i, i + batchSize);
+        currentBatch.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+      }
+      console.log(`[Upload API] Successfully cleared ${deleteDocs.length} existing chunks.`);
     }
 
-    // Initialize document metadata with 'processing' status
-    console.log('[Upload API] Step 4: Saving document metadata...');
-    const docRef = adminDb.collection('users').doc(userId).collection('files').doc(file.name);
+    // 3. Save new chunks (Batched for performance and limit safety)
+    console.log('[Upload API] Step 4: Saving new chunks to Firestore...');
+    const writeBatchSize = 100;
+    for (let i = 0; i < chunks.length; i += writeBatchSize) {
+      const batch = adminDb.batch();
+      const currentChunks = chunks.slice(i, i + writeBatchSize);
+      
+      currentChunks.forEach((content, index) => {
+        const chunkId = `${file.name}-${i + index}-${Date.now()}`;
+        const docRef = chunksRef.doc(chunkId);
+        batch.set(docRef, {
+          id: chunkId,
+          content,
+          metadata: { 
+            source: file.name,
+            uploadedAt: new Date().toISOString()
+          }
+        });
+      });
+      
+      await batch.commit();
+    }
+    console.log(`[Upload API] Step 4 complete. Saved ${chunks.length} chunks.`);
+
+    // 4. Save document metadata with 'ready' status
+    console.log('[Upload API] Step 5: Saving document metadata...');
     const newDoc = {
       id: `${Date.now()}`,
       name: file.name,
       size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
       uploadedAt: new Date().toISOString(),
-      status: 'processing',
+      status: 'ready',
       totalChunks: chunks.length
     };
-    await docRef.set(newDoc);
-    console.log('[Upload API] Step 4 complete. Metadata saved.');
+    await filesRef.set(newDoc);
+    console.log('[Upload API] Step 5 complete. Metadata saved.');
 
-    console.log('[Upload API] Step 5: Returning success response...');
     return NextResponse.json({ 
       success: true, 
       document: newDoc,
-      chunks: chunks, // Return chunks for client-side orchestration
-      message: 'File uploaded and chunks prepared.' 
+      message: 'File uploaded, processed, and ready for chat.' 
     });
 
   } catch (error: any) {
