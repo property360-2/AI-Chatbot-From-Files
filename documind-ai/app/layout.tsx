@@ -30,6 +30,9 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  verification: {
+    google: "google7f52a8234b6a0bce",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
