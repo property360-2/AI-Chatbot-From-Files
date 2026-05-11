@@ -176,7 +176,7 @@ export default function LegalPage() {
             Upload. Ask. Know.
           </p>
           <p className="text-[8px] font-bold text-accent/30 uppercase tracking-widest">
-            © 2026 Tropang AI — All Rights Reserved
+            © {new Date().getFullYear()} TropangAI — All Rights Reserved | Developed by Jun Alvior
           </p>
         </footer>
       </div>
